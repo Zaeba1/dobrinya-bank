@@ -1,4 +1,4 @@
-name: DOBRINYA BANK APK Build
+name: Build DOBRINYA BANK APK
 
 on:
   workflow_dispatch:
@@ -15,40 +15,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Java 17 and Android SDK
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Extract project ZIP
         run: |
-          sudo apt-get update
-          sudo apt-get install -y openjdk-17-jdk unzip
-          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> "$GITHUB_ENV"
-          echo "/usr/lib/jvm/java-17-openjdk-amd64/bin" >> "$GITHUB_PATH"
-          java -version
-
-          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
-          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
-          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
-
-          yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
-
-      - name: Extract ZIP
-        run: unzip -o dobrinyabank_starter.zip -d source
-
-      - name: Check project
-        run: test -f source/android/app/build.gradle.kts
+          unzip -q dobrinyabank_starter.zip -d source
 
       - name: Build APK
         working-directory: source/android
-        run: |
-          gradle --version || true
-          gradle assembleDebug --stacktrace
+        run: gradle assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: DOBRINYA-BANK-APK
           path: source/android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
