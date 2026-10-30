@@ -13,11 +13,10 @@ permissions:
 
 jobs:
   build:
-    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -26,19 +25,34 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Check Android SDK
+      - name: Locate Android SDK
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          echo "$ANDROID_HOME/cmdline-tools"
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
 
-      - name: Accept Android SDK licenses
-        run: |
-          yes | "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager" --licenses || true
+          SDKMANAGER=$(find "$SDK/cmdline-tools" \
+            -type f -name sdkmanager 2>/dev/null | head -n 1)
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "sdkmanager not found. Searching entire SDK..."
+            SDKMANAGER=$(find "$SDK" -type f -name sdkmanager \
+              2>/dev/null | head -n 1)
+          fi
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager not found"
+            find "$SDK" -maxdepth 4 -type d | head -100
+            exit 1
+          fi
+
+          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+          echo "Found: $SDKMANAGER"
 
       - name: Install Android SDK packages
         run: |
-          "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager" \
+          yes | "$SDKMANAGER" --licenses || true
+
+          "$SDKMANAGER" \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
@@ -48,45 +62,37 @@ jobs:
           ZIP="dobrinyabank_starter.zip"
 
           if [ ! -f "$ZIP" ]; then
-            echo "ERROR: $ZIP not found in repository root"
+            echo "ERROR: Archive not found: $ZIP"
             exit 1
           fi
 
-          mkdir -p unpacked
+          mkdir unpacked
           unzip -q -o "$ZIP" -d unpacked
 
-          echo "Extracted files:"
-          find unpacked -maxdepth 3 -type f | head -60
+          echo "Archive extracted"
 
       - name: Locate Android project
         run: |
-          PROJECT=$(find unpacked -type f -name "settings.gradle.kts" \
-            -not -path "*/.gradle/*" | head -n 1)
+          PROJECT=$(find unpacked -type f \
+            \( -name settings.gradle.kts -o -name settings.gradle \) \
+            | head -n 1)
 
           if [ -z "$PROJECT" ]; then
-            PROJECT=$(find unpacked -type f -name "settings.gradle" \
-              -not -path "*/.gradle/*" | head -n 1)
-          fi
-
-          if [ -z "$PROJECT" ]; then
-            echo "ERROR: Android Gradle project not found"
+            echo "ERROR: Android project not found"
+            find unpacked -maxdepth 5 -type f | head -100
             exit 1
           fi
 
           ANDROID_DIR=$(dirname "$PROJECT")
-          echo "ANDROID_DIR=$ANDROID_DIR" >> "$GITHUB_ENV"
 
-          test -f "$ANDROID_DIR/app/build.gradle.kts" || \
-            test -f "$ANDROID_DIR/app/build.gradle"
-
-          echo "Android project: $ANDROID_DIR"
-
-      - name: Check Firebase configuration
-        run: |
-          if [ ! -f "$ANDROID_DIR/app/google-services.json" ]; then
-            echo "WARNING: google-services.json not found."
-            echo "If the project uses Firebase, add this file."
+          if [ ! -f "$ANDROID_DIR/app/build.gradle.kts" ] && \
+             [ ! -f "$ANDROID_DIR/app/build.gradle" ]; then
+            echo "ERROR: app Gradle file not found"
+            exit 1
           fi
+
+          echo "ANDROID_DIR=$ANDROID_DIR" >> "$GITHUB_ENV"
+          echo "Project: $ANDROID_DIR"
 
       - name: Build Debug APK
         run: |
@@ -99,23 +105,10 @@ jobs:
             gradle assembleDebug --stacktrace
           fi
 
-      - name: Find APK
-        run: |
-          APK=$(find "$ANDROID_DIR/app/build/outputs/apk" \
-            -type f -name "*.apk" | head -n 1)
-
-          if [ -z "$APK" ]; then
-            echo "ERROR: APK was not generated"
-            exit 1
-          fi
-
-          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
-          echo "APK generated: $APK"
-
-      - name: Upload DOBRINYA BANK APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: DOBRINYA-BANK-APK
-          path: ${{ env.APK_PATH }}
+          path: ${{ env.ANDROID_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
