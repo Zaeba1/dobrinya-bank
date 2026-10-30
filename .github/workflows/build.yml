@@ -1,47 +1,69 @@
+
 name: Build DOBRINYA BANK APK
 
 on:
-  workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - "dobrinyabank_starter.zip"
       - ".github/workflows/build.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build:
+  apk:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: 17
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.9"
-
-      - name: Extract project ZIP
+      - name: Install Android packages
         run: |
-          unzip -q dobrinyabank_starter.zip -d source
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Build APK
+      - name: Extract bank archive
+        run: |
+          ZIP="dobrinyabank_starter.zip"
+
+          if [ ! -f "$ZIP" ]; then
+            echo "Bank ZIP archive not found!"
+            exit 1
+          fi
+
+          mkdir -p source
+          unzip -q -o "$ZIP" -d source
+
+          echo "Archive extracted"
+          find source -maxdepth 3 -type f | head -50
+
+      - name: Check Android project
+        run: |
+          test -f source/android/settings.gradle.kts
+          test -f source/android/app/build.gradle.kts
+          test -f source/android/app/src/main/AndroidManifest.xml
+
+      - name: Build Debug APK
         working-directory: source/android
-        run: gradle assembleDebug
+        run: |
+          gradle --version
+          gradle assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: DOBRINYA-BANK-APK
           path: source/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
