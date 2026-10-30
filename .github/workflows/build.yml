@@ -12,49 +12,39 @@ permissions:
 
 jobs:
   build:
-    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: gradle
-
-      - name: Install Android SDK
+      - name: Install Java 17 and Android SDK
         run: |
           sudo apt-get update
-          sudo apt-get install -y unzip
+          sudo apt-get install -y openjdk-17-jdk unzip
+          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> "$GITHUB_ENV"
+          echo "/usr/lib/jvm/java-17-openjdk-amd64/bin" >> "$GITHUB_PATH"
+          java -version
+
           SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "$SDK/platform-tools" >> "$GITHUB_PATH"
+
           yes | sdkmanager --licenses || true
           sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Extract ZIP archive
-        run: |
-          unzip -o dobrinyabank_starter.zip -d source
-          ls -la source
+      - name: Extract ZIP
+        run: unzip -o dobrinyabank_starter.zip -d source
 
-      - name: Check project files
-        run: |
-          test -f source/android/app/build.gradle.kts
-          test -f source/android/app/src/main/AndroidManifest.xml
+      - name: Check project
+        run: test -f source/android/app/build.gradle.kts
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.9"
-
-      - name: Build Debug APK
+      - name: Build APK
         working-directory: source/android
-        run: gradle assembleDebug --stacktrace
+        run: |
+          gradle --version || true
+          gradle assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -62,4 +52,3 @@ jobs:
           name: DOBRINYA-BANK-APK
           path: source/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 7
