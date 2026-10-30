@@ -1,4 +1,3 @@
-
 name: Build DOBRINYA BANK APK
 
 on:
@@ -13,57 +12,110 @@ permissions:
   contents: read
 
 jobs:
-  apk:
+  build:
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: "17"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android packages
+      - name: Check Android SDK
         run: |
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          echo "$ANDROID_HOME/cmdline-tools"
 
-      - name: Extract bank archive
+      - name: Accept Android SDK licenses
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager" --licenses || true
+
+      - name: Install Android SDK packages
+        run: |
+          "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      - name: Extract DOBRINYA BANK
         run: |
           ZIP="dobrinyabank_starter.zip"
 
           if [ ! -f "$ZIP" ]; then
-            echo "Bank ZIP archive not found!"
+            echo "ERROR: $ZIP not found in repository root"
             exit 1
           fi
 
-          mkdir -p source
-          unzip -q -o "$ZIP" -d source
+          mkdir -p unpacked
+          unzip -q -o "$ZIP" -d unpacked
 
-          echo "Archive extracted"
-          find source -maxdepth 3 -type f | head -50
+          echo "Extracted files:"
+          find unpacked -maxdepth 3 -type f | head -60
 
-      - name: Check Android project
+      - name: Locate Android project
         run: |
-          test -f source/android/settings.gradle.kts
-          test -f source/android/app/build.gradle.kts
-          test -f source/android/app/src/main/AndroidManifest.xml
+          PROJECT=$(find unpacked -type f -name "settings.gradle.kts" \
+            -not -path "*/.gradle/*" | head -n 1)
+
+          if [ -z "$PROJECT" ]; then
+            PROJECT=$(find unpacked -type f -name "settings.gradle" \
+              -not -path "*/.gradle/*" | head -n 1)
+          fi
+
+          if [ -z "$PROJECT" ]; then
+            echo "ERROR: Android Gradle project not found"
+            exit 1
+          fi
+
+          ANDROID_DIR=$(dirname "$PROJECT")
+          echo "ANDROID_DIR=$ANDROID_DIR" >> "$GITHUB_ENV"
+
+          test -f "$ANDROID_DIR/app/build.gradle.kts" || \
+            test -f "$ANDROID_DIR/app/build.gradle"
+
+          echo "Android project: $ANDROID_DIR"
+
+      - name: Check Firebase configuration
+        run: |
+          if [ ! -f "$ANDROID_DIR/app/google-services.json" ]; then
+            echo "WARNING: google-services.json not found."
+            echo "If the project uses Firebase, add this file."
+          fi
 
       - name: Build Debug APK
-        working-directory: source/android
         run: |
-          gradle --version
-          gradle assembleDebug --stacktrace
+          cd "$ANDROID_DIR"
 
-      - name: Upload APK
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+            ./gradlew assembleDebug --stacktrace
+          else
+            gradle assembleDebug --stacktrace
+          fi
+
+      - name: Find APK
+        run: |
+          APK=$(find "$ANDROID_DIR/app/build/outputs/apk" \
+            -type f -name "*.apk" | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK was not generated"
+            exit 1
+          fi
+
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
+          echo "APK generated: $APK"
+
+      - name: Upload DOBRINYA BANK APK
         uses: actions/upload-artifact@v4
         with:
           name: DOBRINYA-BANK-APK
-          path: source/android/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.APK_PATH }}
           if-no-files-found: error
           retention-days: 7
